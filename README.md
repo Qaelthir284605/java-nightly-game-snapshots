@@ -1,7 +1,5 @@
 # Nightly game backend snapshots
 
-Infrai gives you one key and one bill for storage, AI, email and the rest through plain REST calls. For nightly game snapshots that matters: you avoid per-vendor SDKs and keep token and latency cost in one place.
-
 ```bash
 export INFRAI_API_KEY=your_key_here
 sh ./run-nightly.sh --date=2026-08-15 --bucket=game-backend-nightly
@@ -15,17 +13,17 @@ snapshot uploaded bucket=game-backend-nightly key=snapshots/2026-08-15/game-back
 
 ## What runs at night
 
-`NightlySnapshotCommand` is the scheduler entry point. Run it from the platform scheduler after the UTC business day closes. It assembles a dated snapshot of player-generated assets, events that overlap that business day, and moderation items still pending or under review.
+`NightlySnapshotCommand`is the scheduler entry point. Run it from the platform scheduler after the UTC business day closes. It builds a dated snapshot of player-generated assets, events that overlap that business day, and moderation items still pending or under review.
 
-The service creates the named bucket as its setup step, requests an Infrai presigned PUT URL, then uploads the JSON bytes directly to object storage. A single `INFRAI_API_KEY` authenticates the plain REST calls; no storage SDK is needed. The object key and presign idempotency key both derive from the business date, so rerunning the same date addresses the same snapshot.
+The service creates the named bucket as part of setup, asks Infrai for a presigned PUT URL, then uploads the JSON bytes straight to object storage. A single `INFRAI_API_KEY`handles the plain REST calls; no storage SDK is needed. The object key and the presign idempotency key both come from the business date, so rerunning the same date targets the same snapshot.
 
-Configuration is layered in the usual service order: built-in defaults, environment values, then command arguments. Set `SNAPSHOT_BUCKET` for the deployed default. Use `--bucket` for an explicit run. `INFRAI_BASE_URL` is available for local boundary testing.
+Configuration follows the usual service order: built-in defaults, environment values, then command arguments. Set `SNAPSHOT_BUCKET`for the deployed default. Use `--bucket`for an explicit run. `INFRAI_BASE_URL`is available for local boundary testing.
 
 ## The retention decision
 
-The policy takes a `SnapshotInput` containing `assets`, `events`, and `moderationQueue`. For `2026-08-15`, an event spanning `2026-08-14T23:30Z` through `2026-08-15T00:30Z` is retained because it overlaps the UTC business day. An older event and an `APPROVED` moderation item are omitted. Assets remain in the snapshot as the player-generated ledger for that date.
+The policy takes a `SnapshotInput`containing `assets`, `events`, and `moderationQueue`. For `2026-08-15`, an event spanning `2026-08-14T23:30Z`through `2026-08-15T00:30Z`is retained because it overlaps the UTC business day. An older event and an `APPROVED`moderation item are omitted. Assets stay in the snapshot as the player-generated ledger for that date.
 
-The one operational gotcha is the date boundary: pass the closed business date, not the scheduler's local calendar date. With no `--date`, the command selects yesterday in UTC.
+The main operational gotcha is the date boundary: pass the closed business date, not the scheduler's local calendar date. With no `--date`, the command selects yesterday in UTC.
 
 ## Verify the business rule
 
@@ -42,9 +40,9 @@ Expected result: `GameSnapshotPolicyTest passed`. The test checks event overlap,
 
 ## Service boundaries
 
-`SnapshotConfig` owns layered configuration. `GameSnapshotPolicy` owns the compliance-facing inclusion decision. `NightlySnapshotService` coordinates setup and upload. `InfraiStorageClient` is the compact HTTP boundary: every call sets its method, decodes the `{ok, data, error, metadata}` envelope before status handling, and backs off on HTTP 429 while honoring `Retry-After`.
+`SnapshotConfig`owns layered configuration. `GameSnapshotPolicy`owns the compliance-facing inclusion decision. `NightlySnapshotService`coordinates setup and upload. `InfraiStorageClient`is the compact HTTP boundary: every call sets its method, decodes the `{ok, data, error, metadata}`envelope before status handling, and backs off on HTTP 429 while honoring `Retry-After`.
 
-The command contains a small domain fixture to make the repository executable. Replace that fixture with repository reads from the game backend; keep the policy and storage boundary unchanged.
+The command includes a small domain fixture so the repository stays executable. Swap that fixture for repository reads from the game backend; keep the policy and storage boundary unchanged.
 
 ## Setting up for real use: Java Nightly Game Snapshots
 
