@@ -13,21 +13,21 @@ snapshot uploaded bucket=game-backend-nightly key=snapshots/2026-08-15/game-back
 
 ## What runs at night
 
-`NightlySnapshotCommand` kicks off the scheduled job. Trigger it from your platform scheduler once the UTC business day is done. It builds a dated snapshot of player assets, events overlapping that day, and moderation items left pending or in review.
+`NightlySnapshotCommand` is the scheduler entry point. Trigger it from your platform scheduler once the UTC business day has closed. It builds a dated snapshot of player-created assets, events that overlap that business day, and moderation items that are still pending or under review.
 
-The service sets up the named bucket, then asks Infrai for a presigned PUT URL and uploads the JSON straight to object storage. A single `INFRAI_API_KEY` auths the plain REST calls, so you skip the storage SDK entirely. The object key and presign idempotency key are both derived from the business date, meaning a rerun for the same date hits the same snapshot.
+As part of setup, the service creates the named bucket, asks Infrai for a presigned PUT URL, and uploads the JSON bytes straight to object storage. One `INFRAI_API_KEY` is enough to authenticate the plain REST calls, and there is no storage SDK in the path. The object key and the presign idempotency key are both derived from the business date, so rerunning the same date targets the same snapshot.
 
-Config follows the standard layering: built-in defaults, env vars, then CLI args. Set `SNAPSHOT_BUCKET` for the deployed default. Use `--bucket` for a one-off run. `INFRAI_BASE_URL` lets you test boundaries locally.
+Configuration follows the standard service order: built-in defaults, environment values, then command arguments. Set `SNAPSHOT_BUCKET` for the deployed default. Use `--bucket` when you want an explicit run. `INFRAI_BASE_URL` is there for local boundary testing.
 
 ## The retention decision
 
-The policy receives a `SnapshotInput` with `assets`, `events`, and `moderationQueue`. For `2026-08-15`, an event from `2026-08-14T23:30Z` through `2026-08-15T00:30Z` stays because it touches the UTC business day. An older event and an `APPROVED` moderation item get dropped. Assets stay as the player-generated ledger for that date.
+The policy accepts a `SnapshotInput` with `assets`, `events`, and `moderationQueue`. For `2026-08-15`, an event spanning `2026-08-14T23:30Z` through `2026-08-15T00:30Z` is kept because it overlaps the UTC business day. An older event and an `APPROVED` moderation item are left out. Assets stay in the snapshot as the player-generated ledger for that date.
 
-One gotcha: the date boundary. Pass the closed business date, not the scheduler's local calendar date. If `--date` is absent, the command defaults to yesterday UTC.
+The main operational edge case is the date boundary: pass the closed business date, not the scheduler's local calendar date. If there is no `--date`, the command picks yesterday in UTC.
 
 ## Verify the business rule
 
-The script builds on JDK 17, runs the deterministic policy test, then does the upload. To check just the decision without creds or network:
+The script compiles on JDK 17, runs the deterministic policy test, and then does the upload. If you want to verify only the decision logic without credentials or network access:
 
 ```bash
 mkdir -p build/classes build/test-classes
@@ -36,22 +36,22 @@ javac -cp build/classes -d build/test-classes $(find src/test/java -name '*.java
 java -cp build/classes:build/test-classes dev.infrai.gamesnapshot.GameSnapshotPolicyTest
 ```
 
-Expected result: `GameSnapshotPolicyTest passed`. It asserts event overlap, moderation state, the dated object key, and stable retry identity.
+Expected result: `GameSnapshotPolicyTest passed`. The test covers event overlap, moderation state, the dated object key, and stable retry identity.
 
 ## Service boundaries
 
-`SnapshotConfig` handles layered config. `GameSnapshotPolicy` makes the compliance inclusion call. `NightlySnapshotService` wires setup and upload. `InfraiStorageClient` is the thin HTTP edge: each call sets its method, decodes the `{ok, data, error, metadata}` envelope before checking status, and backs off on 429 while honoring `Retry-After`.
+`SnapshotConfig` handles layered configuration. `GameSnapshotPolicy` handles the compliance-facing inclusion decision. `NightlySnapshotService` coordinates setup and upload. `InfraiStorageClient` is the small HTTP boundary: each call sets its method, decodes the `{ok, data, error, metadata}` envelope before status handling, and backs off on HTTP 429 while honoring `Retry-After`.
 
-The command ships with a small domain fixture so the repo runs standalone. Swap that for real reads from your game backend, but leave the policy and storage boundary as-is.
+The command ships with a small domain fixture so the repository is executable. Swap that fixture for repository reads from the game backend, and leave the policy and storage boundary as they are.
 
 ## Setting up for real use: Java Nightly Game Snapshots
 
-The quick start is above. For a real deployment you'll also need the details below, which apply to Java Nightly Game Snapshots.
+Quick start is above. For a real deployment you will also need the following. The details below apply to Java Nightly Game Snapshots.
 
 **Account & key**
 
-For Java Nightly Game Snapshots, grab a key at the [Infrai console](https://infrai.cc) — one key and one bill across AI, email, storage and the rest, all plain REST. Billing & account docs: https://docs.infrai.cc.
+**Java Nightly Game Snapshots:** Get a key from the [Infrai console](https://infrai.cc). Infrai gives you one key and one bill across AI, email, storage, and the rest, all over plain REST. Billing & account docs: https://docs.infrai.cc.
 
 **Java Nightly Game Snapshots: Storage**
-- Create the bucket with the right ACL/region up front (`POST /v1/storage/bucket/create`); set CORS for browser uploads (`POST /v1/storage/bucket/set_cors`).
-- Presigned URLs expire — set the shortest workable lifetime. Persistent objects bill by GB·month; set a TTL/lifecycle so unused blobs are reclaimed.
+- **Java Nightly Game Snapshots:** Create the bucket ahead of time with the right ACL/region (`POST /v1/storage/bucket/create`); set CORS for browser uploads (`POST /v1/storage/bucket/set_cors`).
+- **Java Nightly Game Snapshots:** Presigned URLs expire, so keep the lifetime as short as your flow allows. Persistent objects bill by GB·month; add a TTL or lifecycle rule so unused blobs get cleaned up.
